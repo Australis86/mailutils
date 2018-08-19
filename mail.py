@@ -52,26 +52,42 @@ Access tokens will be generated every time using this method.
 import os
 import sys
 import datetime
-import mailConfig
-from optparse import OptionParser
+import shutil
+from optparse import OptionParser, OptionGroup
 
+# Test to see if a configuration file has been generated
+try:
+	import mailConfig
+	configPresent = True
+	default_recipient = mailConfig.user
+	smtp_en = mailConfig.smtp_en
+except ImportError, err:
+	print "WARNING: no configuration file has been defined. This script will be unable to send emails until a valid configuration has been set."
+	configPresent = False
+	default_recipient = None
+	smtp_en = False
+
+# Check if smtplib is available
 try:
 	import smtplib
-	useSMTP = True and mailConfig.smtp_en
+	useSMTP = True and smtp_en
 except ImportError, err:
 	useSMTP = False
 
+# Check if Google's OAuth2 module is available
 try:
 	import oauth2
 	useOAuth = True
 except ImportError, err:
 	useOAuth = False
 
+# JSON library
 try:
 	import json
 except ImportError, err:
 	import simplejson as json
-	
+
+# MIME type handling
 try:
 	#Python 2.6+
 	from email.mime.multipart import MIMEMultipart
@@ -81,14 +97,18 @@ except ImportError, err:
 	from email.MIMEMultipart import MIMEMultipart
 	from email.MIMEText import MIMEText
 
+# If neither Python library is available, fall back to subprocess
 if not useSMTP and not useOAuth:
 	import subprocess
-	
+
+
 PATH = os.path.abspath(os.path.dirname(__file__))
 SCRIPTNAME = os.path.splitext(os.path.basename(__file__))[0]
 LOGFILE = os.path.join(PATH, '%s.log' % SCRIPTNAME)
 EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME)
 TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME)
+CONFTEMPLATE = os.path.join(PATH, "mailConfig.template")
+CONFFINAL = os.path.join(PATH, "mailConfig.py")
 opts = None
 
 class DateEncoder(json.JSONEncoder):
@@ -118,33 +138,47 @@ def initOptions():
 	usage = "usage: %prog [options]"
 	parser = OptionParser(usage=usage)
 
-	parser.add_option("-g", "--generate",
-					  action="store_true", dest="initialise", default=False,
-					  help="Generate the OAuth tokens (requires OAuth Client ID & Secret to be entered into mailConfig.py)")
+	parser.add_option("-r", "--recipient",
+						dest="recipient", default=default_recipient,
+						help="Specify the recipient for the email.")
+	parser.add_option("-s", "--subject",
+						dest="subject", default="No Subject Specified",
+						help="Specify the subject string for the email.")
 	parser.add_option("-i", "--isp",
 					  action="store_true", dest="useISP", default=False,
-					  help="Send email via ISP relay (must be specified in mailConfig)")
+					  help="Send email via ISP SMTP relay (if set).")
 	parser.add_option("-t", "--test",
 					  action="store_true", dest="test", default=False,
-					  help="Run email test (sends to address specified in mailConfig)")
-	parser.add_option("-s", "--subject",
-					  dest="subject", default="No Subject Specified",
-					  help="Specify the subject string for the email.")
-	parser.add_option("-r", "--recipient",
-					  dest="recipient", default=mailConfig.user,
-					  help="Specify the recipient for the email.")
-	parser.add_option("-f", "--file",
-					  dest="textfile", default=None,
-					  help="Specify a plain-text file to use for the text content of the email.")
-	parser.add_option("-l", "--html",
-					  dest="htmlfile", default=None,
-					  help="Specify a html file to use for the html content of the email.")
+					  help="Send an email using the current configuration.")
+
+	# Options to handle using a file as the source of the email contents
+	fileOptions = OptionGroup(parser, "Prepared Email Body Options",
+						"These options allow the user to specify a source file for the text and/or HTML part of the email body.")
+	fileOptions.add_option("-f", "--file",
+						dest="textfile", default=None,
+						help="A text file to use for the text part of the email.")
+	fileOptions.add_option("-l", "--html",
+						dest="htmlfile", default=None,
+						help="A HTML file to use for the HTML part of the email.")
+	parser.add_option_group(fileOptions)
+
+	# Options to control the configuration script
+	configOptions = OptionGroup(parser, "Configuration Options",
+						"These options allow the user to create or modify the script configuration.")
+	configOptions.add_option("-c", "--configure",
+						action="store_true", dest="configure", default=False,
+						help="Create a configuration file from the provided template and prompt the user to enter configuration values.")
+	configOptions.add_option("-o", "--oauth",
+						action="store_true", dest="init_oauth", default=False,
+						help="Generate the OAuth tokens. Requires that the initial configuration is complete and the OAuth Client ID and Secret are present in mailConfig.py.")
+	parser.add_option_group(configOptions)
+
 
 	(opts, args) = parser.parse_args()
 	return opts, args
 	
 
-def sendEmail(recipient=mailConfig.user, subject='No Subject Specified', bodytext=None, bodyhtml=None):
+def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodytext=None, bodyhtml=None):
 	'''Send an email via Gmail using OAuth authentication.
 	Requires mailConfig.py is appropriately pre-filled with user data.'''
 
@@ -314,15 +348,48 @@ def initialiseOAuth():
 	json.dump(tokendata, f, cls=DateEncoder)
 	f.close()
 	
+	
+def configureScript(template=CONFTEMPLATE):
+	'''Initialise the configuration file for the mail script.'''
+	
+	# Ensure the template file exists
+	if not os.path.exists(CONFTEMPLATE):
+		print "Configuration template script %s not found. Aborting." % CONFTEMPLATE
+		sys.exit(1)
+		
+	# Check if there is an existing configuration file
+	if os.path.exists(CONFFINAL):
+		r = raw_input("There is already an existing configuration file. Continuing will overwrite this with the blank template. Are you sure you want to continue? [Y/N] ")
+		if "y" not in r.lower():
+			sys.exit(0)
+	
+	# TO DO: Might replace this with YAML in future
+	
+	# Copy the template file
+	shutil.copyfile(CONFTEMPLATE, CONFFINAL)
+	
+	# Edit the template file
+	# Add commands here to modify the template using regex?
+	
+	
 if __name__ == '__main__':
 	initOptions() # Parse command-line parameters
-
-	if opts.initialise:
-		logPrint('Command-line request for OAuth initialisation.')
-		initialiseOAuth()
-	elif opts.test:
-		logPrint('Command-line request for test email.')
-		sendEmail()
+	
+	# First, check if a configuration exists
+	if not configPresent:
+		# TO DO: Ideally make this have a timeout so that if the script is called by an automated process, it doesn't hang indefinitely
+		r = raw_input("Do you wish to configure the script now? [Y/N] ")
+		if "y" not in r.lower():
+			sys.exit(0)
+		
+		configureScript()
 	else:
-		logPrint('Command-line request for email.')
-		prepEmail()
+		if opts.test:
+			logPrint('Command-line request for test email.')
+			sendEmail()
+		elif opts.init_oauth:
+			logPrint('Command-line request for OAuth initialisation.')
+			initialiseOAuth()
+		else:
+			logPrint('Command-line request for email.')
+			prepEmail()
