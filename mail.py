@@ -53,6 +53,8 @@ import os
 import sys
 import datetime
 import shutil
+import yaml
+import socket
 from optparse import OptionParser, OptionGroup
 
 # Test to see if a configuration file has been generated
@@ -109,6 +111,7 @@ EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME)
 TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME)
 CONFTEMPLATE = os.path.join(PATH, "mailConfig.template")
 CONFFINAL = os.path.join(PATH, "mailConfig.py")
+YAMLCONF = os.path.join(PATH, "mailConfig.yaml")
 opts = None
 
 class DateEncoder(json.JSONEncoder):
@@ -352,6 +355,32 @@ def initialiseOAuth():
 def configureScript(template=CONFTEMPLATE):
 	'''Initialise the configuration file for the mail script.'''
 	
+	def updateConfig(obj, key, msg, sys_def=None):
+		"""Method to update a configuration field based on user input."""
+		
+		# Check if a value already exists
+		if key in obj:
+			existing = obj[key]
+		else:
+			existing = sys_def
+			obj[key] = existing
+		
+		# Sanity-check existing value
+		if existing is None:
+			existing = 'No default available'
+		
+		# Ask the user for input
+		r = raw_input(msg % existing)
+		
+		# Clean the input and check if it is valid
+		r = r.strip()
+		if len(r) > 0:
+			# Update the object
+			obj[key] = r
+		
+		# No need to return, since Python is pass-by-object-reference...
+	
+	
 	# Ensure the template file exists
 	if not os.path.exists(CONFTEMPLATE):
 		print "Configuration template script %s not found. Aborting." % CONFTEMPLATE
@@ -360,23 +389,90 @@ def configureScript(template=CONFTEMPLATE):
 	# Check if there is an existing configuration file
 	if os.path.exists(CONFFINAL):
 		r = raw_input("There is already an existing configuration file. Continuing will overwrite this with the blank template. Are you sure you want to continue? [Y/N] ")
-		if "y" not in r.lower():
-			sys.exit(0)
+		if "y" in r.lower():
+			# Copy the template file
+			shutil.copyfile(CONFTEMPLATE, CONFFINAL)
 	
-	# TO DO: Might replace this with YAML in future
+	# TO DO: Finish this YAML implementation
+
+	# If there is an existing file, load it
+	if os.path.exists(YAMLCONF):
+		stream = file(YAMLCONF, 'r')
+		data = yaml.load(stream)
+	else:
+		# Create the default configuration object
+		data = {
+			'user':{},
+			'OAuth2':{},
+			'ISP':{},
+			'smtp':{},
+			'ssmtp':{},
+		}
 	
-	# Copy the template file
-	shutil.copyfile(CONFTEMPLATE, CONFFINAL)
+	# Try to work out default sender values
+	try:
+		default_name = os.getlogin() # Only works on Windows if using Python 3.x
+	except Exception, err:
+		default_name = 'mail'
 	
-	# Edit the template file
-	# Add commands here to modify the template using regex?
+	default_addr = '%s@%s' % (default_name, socket.getfqdn())
+	
+	# Specify the sender address and name
+	updateConfig(data['user'],'sender', 'Sender email address (%s): ', default_addr)
+	updateConfig(data['user'],'sender-name','Sender name (%s): ', default_name)
+	
+	# TO DO: Sanity-check sender fields here
+	
+	# Reply-to address and name
+	updateConfig(data['user'],'reply-to','Reply-to address (%s): ',data['user']['sender'])
+	updateConfig(data['user'],'reply-to-name','Reply-to name (%s): ',data['user']['sender-name'])
+	
+	# Use OAuth2?
+	print
+	r = raw_input("Do you wish to use OAuth2? You will need the client ID and client secret. [Y/N] ")
+	if "y" in r.lower():
+		updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
+		updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
+	
+	# ISP Relay?
+	print 
+	r = raw_input("Enable fallback to ISP relay? [Y/N] ")
+	if "y" in r.lower():
+		updateConfig(data['ISP'],'relay','Enter ISP relay FQDN (%s): ')
+	
+	# smtplib
+	print
+	r = raw_input("Enable fallback to smtplib? This is not recommended, as your username and password are stored in plaintext. [Y/N] ")
+	if "y" in r.lower():
+		updateConfig(data['smtp'],'server','SMTP server (%s): ')
+		updateConfig(data['smtp'],'port','SMTP port (%s): ')
+		updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ')
+		updateConfig(data['smtp'],'username','Username (%s): ')
+		updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
+	
+	# Subprocess SSMTP
+	# TO DO: Check if SSMTP is present and set the default path if it is
+	ssmtp_path = '/usr/sbin/ssmtp'
+	
+	print
+	r = raw_input("Enable fallback to subprocess and ssmtp? [Y/N] ")
+	if "y" in r.lower():
+		# If ssmtp is present, auto-populate
+		updateConfig(data['ssmtp'],'path','Enter the path to the SSMTP binary (%s): ',ssmtp_path)
+	
+	
+	# Create the YAML config file
+	stream = file(YAMLCONF, 'w')
+	yaml.dump(data, stream)
+	print yaml.dump(data)
+	
 	
 	
 if __name__ == '__main__':
 	initOptions() # Parse command-line parameters
 	
 	# First, check if a configuration exists
-	if not configPresent:
+	if not configPresent or opts.configure:
 		# TO DO: Ideally make this have a timeout so that if the script is called by an automated process, it doesn't hang indefinitely
 		r = raw_input("Do you wish to configure the script now? [Y/N] ")
 		if "y" not in r.lower():
