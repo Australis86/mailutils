@@ -49,6 +49,7 @@ Put your Gmail address, client id, client secret and refresh token into mailConf
 Access tokens will be generated every time using this method.
 '''
 
+
 import os
 import sys
 import datetime
@@ -57,6 +58,8 @@ import yaml
 import socket
 from optparse import OptionParser, OptionGroup
 
+
+# To be deprecated
 # Test to see if a configuration file has been generated
 try:
 	import mailConfig
@@ -68,6 +71,9 @@ except ImportError, err:
 	configPresent = False
 	default_recipient = None
 	smtp_en = False
+
+########################################
+# Sanity checks to see what is available
 
 # Check if smtplib is available
 try:
@@ -82,6 +88,12 @@ try:
 	useOAuth = True
 except ImportError, err:
 	useOAuth = False
+
+# If neither Python library is available, fall back to subprocess
+if not useSMTP and not useOAuth:
+	import subprocess
+
+########################################
 
 # JSON library
 try:
@@ -99,20 +111,24 @@ except ImportError, err:
 	from email.MIMEMultipart import MIMEMultipart
 	from email.MIMEText import MIMEText
 
-# If neither Python library is available, fall back to subprocess
-if not useSMTP and not useOAuth:
-	import subprocess
 
+# File paths
+PATH = os.path.abspath(os.path.dirname(__file__)) # Script directory
+SCRIPTNAME = os.path.splitext(os.path.basename(__file__))[0] # Script name
+LOGFILE = os.path.join(PATH, '%s.log' % SCRIPTNAME) # Logfile
+EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME) # Temporary storage for email contents
+TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME) # Storage for OAuth2 token
+YAMLCONF = os.path.join(PATH, "mailConfig.yaml")
 
-PATH = os.path.abspath(os.path.dirname(__file__))
-SCRIPTNAME = os.path.splitext(os.path.basename(__file__))[0]
-LOGFILE = os.path.join(PATH, '%s.log' % SCRIPTNAME)
-EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME)
-TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME)
+# To be deprecated
 CONFTEMPLATE = os.path.join(PATH, "mailConfig.template")
 CONFFINAL = os.path.join(PATH, "mailConfig.py")
-YAMLCONF = os.path.join(PATH, "mailConfig.yaml")
+
+# Global variables
 opts = None
+conf = {}
+
+
 
 class DateEncoder(json.JSONEncoder):
 	'''Class to extend JSON encoder, courtesy of http://stackoverflow.com/questions/12316638/psycopg2-execute-returns-datetime-instead-of-a-string'''
@@ -121,7 +137,7 @@ class DateEncoder(json.JSONEncoder):
 		if isinstance(obj, datetime.date):
 			return obj.strftime('%Y-%m-%d %H:%M:%S') # Do this instead of returning str(obj) to avoid timezone field
 		return json.JSONEncoder.default(self, obj)
-		
+
 
 def logPrint(text):
 	'''Print to the screen and write to the log file.'''
@@ -132,8 +148,8 @@ def logPrint(text):
 	f = open(LOGFILE, 'a')
 	f.write('%s\t%s\n' % (nowstr, text))
 	f.close()
-	
-	
+
+
 def initOptions():
 	'''System argument processing.'''
 	global opts
@@ -179,7 +195,7 @@ def initOptions():
 
 	(opts, args) = parser.parse_args()
 	return opts, args
-	
+
 
 def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodytext=None, bodyhtml=None):
 	'''Send an email via Gmail using OAuth authentication.
@@ -428,11 +444,12 @@ def configureScript(template=CONFTEMPLATE):
 	updateConfig(data['user'],'reply-to-name','Reply-to name (%s): ',data['user']['sender-name'])
 	
 	# Use OAuth2?
-	print
-	r = raw_input("Do you wish to use OAuth2? You will need the client ID and client secret. [Y/N] ")
-	if "y" in r.lower():
-		updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
-		updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
+	if useOAuth:
+		print
+		r = raw_input("Do you wish to use OAuth2? You will need the client ID and client secret. [Y/N] ")
+		if "y" in r.lower():
+			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
+			updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
 	
 	# ISP Relay?
 	print 
@@ -441,14 +458,15 @@ def configureScript(template=CONFTEMPLATE):
 		updateConfig(data['ISP'],'relay','Enter ISP relay FQDN (%s): ')
 	
 	# smtplib
-	print
-	r = raw_input("Enable fallback to smtplib? This is not recommended, as your username and password are stored in plaintext. [Y/N] ")
-	if "y" in r.lower():
-		updateConfig(data['smtp'],'server','SMTP server (%s): ')
-		updateConfig(data['smtp'],'port','SMTP port (%s): ')
-		updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ')
-		updateConfig(data['smtp'],'username','Username (%s): ')
-		updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
+	if useSMTP:
+		print
+		r = raw_input("Enable fallback to smtplib? This is not recommended, as your username and password are stored in plaintext. [Y/N] ")
+		if "y" in r.lower():
+			updateConfig(data['smtp'],'server','SMTP server (%s): ')
+			updateConfig(data['smtp'],'port','SMTP port (%s): ')
+			updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ')
+			updateConfig(data['smtp'],'username','Username (%s): ')
+			updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
 	
 	# Subprocess SSMTP
 	# TO DO: Check if SSMTP is present and set the default path if it is
@@ -464,28 +482,45 @@ def configureScript(template=CONFTEMPLATE):
 	# Create the YAML config file
 	stream = file(YAMLCONF, 'w')
 	yaml.dump(data, stream)
+	
+	# Debugging output
 	print yaml.dump(data)
 	
 	
+def loadConfig():
+	"""Load the YAML configuration file."""
 	
+	global conf
+	
+	# Ensure the file exists
+	if os.path.exists(YAMLCONF):
+		stream = file(YAMLCONF, 'r')
+		conf = yaml.load(stream)
+		
+		# Debugging output
+		print conf
+		sys.exit(0)
+		
+	else:
+		print "Configuration file not found. Run the script with -c to create the configuration file."
+		sys.exit(0)
+
 if __name__ == '__main__':
 	initOptions() # Parse command-line parameters
+	#loadConfig() # Load the configuration file
 	
-	# First, check if a configuration exists
-	if not configPresent or opts.configure:
-		# TO DO: Ideally make this have a timeout so that if the script is called by an automated process, it doesn't hang indefinitely
-		r = raw_input("Do you wish to configure the script now? [Y/N] ")
-		if "y" not in r.lower():
-			sys.exit(0)
-		
+	# Legacy test for old configuration file
+	if not configPresent:
+		print "Configuration file not found. Run the script with -c to create the configuration file."
+		sys.exit(0)
+	elif opts.configure:
 		configureScript()
+	elif opts.test:
+		logPrint('Command-line request for test email.')
+		sendEmail()
+	elif opts.init_oauth:
+		logPrint('Command-line request for OAuth initialisation.')
+		initialiseOAuth()
 	else:
-		if opts.test:
-			logPrint('Command-line request for test email.')
-			sendEmail()
-		elif opts.init_oauth:
-			logPrint('Command-line request for OAuth initialisation.')
-			initialiseOAuth()
-		else:
-			logPrint('Command-line request for email.')
-			prepEmail()
+		logPrint('Command-line request for email.')
+		prepEmail()
