@@ -52,6 +52,7 @@ Access tokens will be generated every time using this method.
 
 import os
 import sys
+import errno
 import datetime
 import shutil
 import yaml
@@ -499,20 +500,21 @@ def loadConfig():
 		
 		# Debugging output
 		print conf
-		sys.exit(0)
 		
 	else:
-		print "Configuration file not found. Run the script with -c to create the configuration file."
-		sys.exit(0)
+		raise OSError(errno.ENOENT, "Configuration file not found. Run the script with -c to create the configuration file.")
 
+
+# Always execute, especially when importing
+loadConfig() # Load the configuration file
+
+# Only execute when the script is called directly
 if __name__ == '__main__':
 	initOptions() # Parse command-line parameters
-	#loadConfig() # Load the configuration file
 	
 	# Legacy test for old configuration file
 	if not configPresent:
-		print "Configuration file not found. Run the script with -c to create the configuration file."
-		sys.exit(0)
+		raise OSError(errno.ENOENT, "Configuration file not found. Run the script with -c to create the configuration file.")
 	elif opts.configure:
 		configureScript()
 	elif opts.test:
