@@ -104,7 +104,7 @@ SCRIPTNAME = os.path.splitext(os.path.basename(__file__))[0] # Script name
 LOGFILE = os.path.join(PATH, '%s.log' % SCRIPTNAME) # Logfile
 EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME) # Temporary storage for email contents
 TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME) # Storage for OAuth2 token
-YAMLCONF = os.path.join(PATH, "%s.yaml")
+YAMLCONF = os.path.join(PATH, '%s.yaml' % SCRIPTNAME)
 
 # Global variables
 opts = None
@@ -443,7 +443,7 @@ def configureScript():
 	# Use OAuth2?
 	if useOAuth:
 		print
-		r = raw_input("Do you wish to use OAuth2? You will need to set up a client ID and client secret first. [Y/N] ")
+		r = raw_input("Do you wish to use OAuth2 with Gmail? Visit https://console.developers.google.com/apis/credentials to set up a client ID and client secret first. [Y/N] ")
 		if "y" in r.lower():
 			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
 			updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
