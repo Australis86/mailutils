@@ -59,43 +59,6 @@ import yaml
 import socket
 from optparse import OptionParser, OptionGroup
 
-
-# To be deprecated
-# Test to see if a configuration file has been generated
-try:
-	import mailConfig
-	configPresent = True
-	default_recipient = mailConfig.user
-	smtp_en = mailConfig.smtp_en
-except ImportError, err:
-	print "WARNING: no configuration file has been defined. This script will be unable to send emails until a valid configuration has been set."
-	configPresent = False
-	default_recipient = None
-	smtp_en = False
-
-########################################
-# Sanity checks to see what is available
-
-# Check if smtplib is available
-try:
-	import smtplib
-	useSMTP = True and smtp_en
-except ImportError, err:
-	useSMTP = False
-
-# Check if Google's OAuth2 module is available
-try:
-	import oauth2
-	useOAuth = True
-except ImportError, err:
-	useOAuth = False
-
-# If neither Python library is available, fall back to subprocess
-if not useSMTP and not useOAuth:
-	import subprocess
-
-########################################
-
 # JSON library
 try:
 	import json
@@ -112,6 +75,28 @@ except ImportError, err:
 	from email.MIMEMultipart import MIMEMultipart
 	from email.MIMEText import MIMEText
 
+########################################
+# Sanity checks to see what is available
+
+# Check if Google's OAuth2 module is available
+try:
+	import oauth2
+	useOAuth = True
+except ImportError, err:
+	useOAuth = False
+
+# Check if smtplib is available
+try:
+	import smtplib
+	useSMTP = True
+except ImportError, err:
+	useSMTP = False
+
+# If neither Python library is available, fall back to subprocess
+if not useSMTP and not useOAuth:
+	import subprocess
+
+########################################
 
 # File paths
 PATH = os.path.abspath(os.path.dirname(__file__)) # Script directory
@@ -119,11 +104,7 @@ SCRIPTNAME = os.path.splitext(os.path.basename(__file__))[0] # Script name
 LOGFILE = os.path.join(PATH, '%s.log' % SCRIPTNAME) # Logfile
 EMAILFILE = os.path.join(PATH, '%s.email' % SCRIPTNAME) # Temporary storage for email contents
 TOKENFILE = os.path.join(PATH, '%s.token' % SCRIPTNAME) # Storage for OAuth2 token
-YAMLCONF = os.path.join(PATH, "mailConfig.yaml")
-
-# To be deprecated
-CONFTEMPLATE = os.path.join(PATH, "mailConfig.template")
-CONFFINAL = os.path.join(PATH, "mailConfig.py")
+YAMLCONF = os.path.join(PATH, "%s.yaml")
 
 # Global variables
 opts = None
@@ -159,14 +140,14 @@ def initOptions():
 	parser = OptionParser(usage=usage)
 
 	parser.add_option("-r", "--recipient",
-						dest="recipient", default=default_recipient,
+						dest="recipient", default=None,
 						help="Specify the recipient for the email.")
 	parser.add_option("-s", "--subject",
 						dest="subject", default="No Subject Specified",
 						help="Specify the subject string for the email.")
 	parser.add_option("-i", "--isp",
 					  action="store_true", dest="useISP", default=False,
-					  help="Send email via ISP SMTP relay (if set).")
+					  help="Force use of ISP SMTP relay if available.")
 	parser.add_option("-t", "--test",
 					  action="store_true", dest="test", default=False,
 					  help="Send an email using the current configuration.")
@@ -198,55 +179,63 @@ def initOptions():
 	return opts, args
 
 
-def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodytext=None, bodyhtml=None):
-	'''Send an email via Gmail using OAuth authentication.
-	Requires mailConfig.py is appropriately pre-filled with user data.'''
+def validateKeys(obj, keylist):
+	'''Validate that the keys are present in an object and the values are not None.'''
+	
+	result = True
+	for key in keylist:
+		result = result and key in obj and obj[key] is not None
+	
+	return result
 
-	# Check to see if we're using the ISP relay options
-	relay = ((opts and opts.useISP) or mailConfig.isp_en) and len(mailConfig.isp_relay) > 0
 
+def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml=None):
+	'''Send an email using a configured method. In order of priority, these methods will be used:
+		- OAuth2
+		- ISP relay
+		- smtplib
+		- ssmtp'''
+	
+	# Flags for ISP relay override
+	useISP = opts and opts.useISP
+	
 	# Set the subject and body for test purposes
 	if opts and opts.test:
 		subject = "Test Email"
 		bodytext = "This is a test email."
 		logPrint("Preparing to send a test email.")
 	
-	# Send the message via the selected SMTP server
-	if relay:
-		smtp_conn = smtplib.SMTP(mailConfig.isp_relay)
-		logPrint("Connected to SMTP server (ISP relay).")
-
-	# Use OAuth 2.0
-	elif useOAuth:
-		# Check for a token file
-		if os.path.exists(TOKENFILE):
-			f = open(TOKENFILE, 'r')
-			tokendata = json.load(f)
-			expiry = datetime.datetime.strptime(tokendata['expiry'], '%Y-%m-%d %H:%M:%S')
+	# Short references to objects
+	OA2 = conf['OAuth2']
+	ISPr = conf['ISP'] 
+	smtpc = conf['smtp']
+	userc = conf['user']
+	
+	# If OAuth2 is enabled...
+	if not useISP and useOAuth and validateKeys(OA2,['client_id','client_secret']) and os.path.exists(TOKENFILE):
+		# Load the token file
+		f = open(TOKENFILE, 'r')
+		tokendata = json.load(f)
+		expiry = datetime.datetime.strptime(tokendata['expiry'], '%Y-%m-%d %H:%M:%S')
+		f.close()
+		
+		# Check for expired access token
+		now = datetime.datetime.now()
+		if expiry < now:
+			logPrint("Access token expired. Generating a new token.")
+			response = oauth2.RefreshToken(OA2['client_id'], OA2['client_secret'], tokendata['refresh'])
+			tokendata['access'] = response['access_token']
+			tokendata['expiry'] = now + datetime.timedelta(seconds=response['expires_in'])
+			
+			# Update the saved token data
+			f = open(TOKENFILE, 'w')
+			json.dump(tokendata, f, cls=DateEncoder)
 			f.close()
 			
-			# Check for expired access token
-			now = datetime.datetime.now()
-			if expiry < now:
-				logPrint("Access token expired. Generating a new token.")
-				response = oauth2.RefreshToken(mailConfig.client_id, mailConfig.client_secret, tokendata['refresh'])
-				tokendata['access'] = response['access_token']
-				tokendata['expiry'] = now + datetime.timedelta(seconds=response['expires_in'])
-				
-				# Update the saved token data
-				f = open(TOKENFILE, 'w')
-				json.dump(tokendata, f, cls=DateEncoder)
-				f.close()
-				
-			access_token = tokendata['access']
-				
-		# Otherwise just generate a new access token each time
-		else:
-			response = oauth2.RefreshToken(mailConfig.client_id, mailConfig.client_secret, mailConfig.refresh_token)
-			access_token = response['access_token']
-			
+		access_token = tokendata['access']
+		
 		# Prepare for authentication
-		oauth2_string = oauth2.GenerateOAuth2String(mailConfig.user, access_token)
+		oauth2_string = oauth2.GenerateOAuth2String(conf['user']['sender'], access_token)
 		logPrint("Authentication string generated.")
 		
 		# Set up the connection
@@ -257,17 +246,22 @@ def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodyt
 		smtp_conn.starttls()
 		smtp_conn.docmd('AUTH', 'XOAUTH2 ' + oauth2_string)
 		logPrint("Connected to SMTP server using OAuth.")
-		
-	# Use smtplib manually with username and password (not recommended)
-	elif useSMTP and mailConfig.smtp_en:
+	
+	# ISP relay fallback
+	elif useISP or validateKeys(ISPr,['relay']):
+		smtp_conn = smtplib.SMTP(ISPr['relay'])
+		logPrint("Connected to SMTP server (ISP relay).")
+	
+	# smtplib fallback (not recommended)
+	elif useSMTP and validateKeys(smtpc,['server','port']):
 		# Use mail server
-		smtp_conn = smtplib.SMTP(mailConfig.smtp_server, mailConfig.smtp_port)
+		smtp_conn = smtplib.SMTP(smtpc['server'], smtpc['port'])
 		smtp_conn.ehlo()
-		if mailConfig.smtp_starttls:
+		if smtpc['starttls']:
 			smtp_conn.starttls()
 			smtp_conn.ehlo()
 			
-		smtp_conn.login(mailConfig.smtp_username, mailConfig.smtp_password)
+		smtp_conn.login(smtpc['username'], smtpc['password'])
 		logPrint("Connected to SMTP server using account credentials.")
 
 	# Use subprocess and rely on system-configured SSMTP
@@ -275,7 +269,7 @@ def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodyt
 		logPrint("Preparing to send email via ssmtp subprocess.")
 
 		# Prepare email header
-		email = '''MIME-Version: 1.0\nContent-Type: text/html\nTo: <%s>\nFrom: "%s" <%s>\nReply-To: "%s" <%s>\nSubject: %s\n\n%s''' % (recipient, mailConfig.sender, mailConfig.sender, mailConfig.replytoname, mailConfig.replyto, subject, bodytext)
+		email = '''MIME-Version: 1.0\nContent-Type: text/html\nTo: <%s>\nFrom: "%s" <%s>\nReply-To: "%s" <%s>\nSubject: %s\n\n%s''' % (recipient, conf['user']['sender'], conf['user']['sender'], conf['user']['reply-to-name'], conf['user']['reply-to'], subject, bodytext)
 		email = email.encode('ascii')
 
 		# Have to write contents to a file. Won't work if you try to echo or cat it.
@@ -283,7 +277,7 @@ def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodyt
 		f.write(email)
 		f.close()
 
-		cmdstr = '%s %s < "%s"' % (mailConfig.ssmtp_binary, recipient, EMAILFILE)
+		cmdstr = '%s %s < "%s"' % (conf['ssmtp']['path'], recipient, EMAILFILE)
 		try:
 			subprocess.call(cmdstr, shell=True)
 			os.remove(EMAILFILE)
@@ -296,8 +290,8 @@ def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodyt
 	
 	# Assemble the email
 	msg = MIMEMultipart('alternative')
-	msg['From'] = "%s <%s>" % (mailConfig.username, mailConfig.sender)
-	msg['Reply-To'] = "%s <%s>" % (mailConfig.replytoname, mailConfig.replyto)
+	msg['From'] = "%s <%s>" % (userc['sender-name'], userc['sender'])
+	msg['Reply-To'] = "%s <%s>" % (userc['reply-to-name'], userc['reply-to'])
 	msg['To'] = recipient
 	msg['Subject'] = subject
 
@@ -310,7 +304,7 @@ def sendEmail(recipient=default_recipient, subject='No Subject Specified', bodyt
 		msg.attach(htmlBody)
 
 	# Send the email
-	smtp_conn.sendmail(mailConfig.user, recipient, msg.as_string())
+	smtp_conn.sendmail(userc['sender'], recipient, msg.as_string())
 	smtp_conn.close()
 	logPrint("Email sent.")
 
@@ -345,34 +339,42 @@ def prepEmail(subject=None, recipient=None, textfile=None, htmlfile=None):
 def initialiseOAuth():
 	'''Initialise the OAuth token file using the client id and secret.'''
 	
-	# Authorise the app
-	print 'Visit the following URL to authorise the token:'
-	print oauth2.GeneratePermissionUrl(mailConfig.client_id, 'https://mail.google.com/')
-	print 
-	authorisation_code = raw_input('Enter verification code: ')
+	OA2 = conf['OAuth2']
+	if useOAuth:
+		if validateKeys(OA2, ['client_id', 'client_secret']):
+			# Authorise the app
+			print 'Visit the following URL to authorise the token:'
+			print oauth2.GeneratePermissionUrl(OA2['client_id'], 'https://mail.google.com/')
+			print 
+			authorisation_code = raw_input('Enter verification code: ')
+			
+			# Get the access and refresh tokens
+			response = oauth2.AuthorizeTokens(OA2['client_id'], OA2['client_secret'], authorisation_code)
+			print 'Refresh Token: %s' % response['refresh_token']
+			print 'Access Token: %s' % response['access_token']
+			
+			# Calculate the expiry for the access token
+			expiry = datetime.datetime.now() + datetime.timedelta(seconds=response['expires_in'])
+			tokendata = {
+				'refresh': response['refresh_token'],
+				'access': response['access_token'],
+				'expiry': expiry,
+			}
+			
+			f = open(TOKENFILE, 'w')
+			json.dump(tokendata, f, cls=DateEncoder)
+			f.close()
+		
+		else:
+			print "You have not provided a client ID or secret. Please update the configuration file."
+	else:
+		print "OAuth2 is not enabled. Please install the Google oauth2 module."
 	
-	# Get the access and refresh tokens
-	response = oauth2.AuthorizeTokens(mailConfig.client_id, mailConfig.client_secret, authorisation_code)
-	print 'Refresh Token: %s' % response['refresh_token']
-	print 'Access Token: %s' % response['access_token']
 	
-	# Calculate the expiry for the access token
-	expiry = datetime.datetime.now() + datetime.timedelta(seconds=response['expires_in'])
-	tokendata = {
-		'refresh': response['refresh_token'],
-		'access': response['access_token'],
-		'expiry': expiry,
-	}
-	
-	f = open(TOKENFILE, 'w')
-	json.dump(tokendata, f, cls=DateEncoder)
-	f.close()
-	
-	
-def configureScript(template=CONFTEMPLATE):
+def configureScript():
 	'''Initialise the configuration file for the mail script.'''
 	
-	def updateConfig(obj, key, msg, sys_def=None):
+	def updateConfig(obj, key, msg, sys_def=None, castbool=False):
 		"""Method to update a configuration field based on user input."""
 		
 		# Check if a value already exists
@@ -387,31 +389,25 @@ def configureScript(template=CONFTEMPLATE):
 			existing = 'No default available'
 		
 		# Ask the user for input
-		r = raw_input(msg % existing)
+		if castbool:
+			substr = (existing and 'Yes') or (not existing and 'No')
+		else:
+			substr = existing
+		
+		r = raw_input(msg % substr)
 		
 		# Clean the input and check if it is valid
 		r = r.strip()
 		if len(r) > 0:
 			# Update the object
-			obj[key] = r
+			if castbool:
+				obj[key] = 'y' in r.lower()
+			else:
+				obj[key] = r
 		
 		# No need to return, since Python is pass-by-object-reference...
 	
 	
-	# Ensure the template file exists
-	if not os.path.exists(CONFTEMPLATE):
-		print "Configuration template script %s not found. Aborting." % CONFTEMPLATE
-		sys.exit(1)
-		
-	# Check if there is an existing configuration file
-	if os.path.exists(CONFFINAL):
-		r = raw_input("There is already an existing configuration file. Continuing will overwrite this with the blank template. Are you sure you want to continue? [Y/N] ")
-		if "y" in r.lower():
-			# Copy the template file
-			shutil.copyfile(CONFTEMPLATE, CONFFINAL)
-	
-	# TO DO: Finish this YAML implementation
-
 	# If there is an existing file, load it
 	if os.path.exists(YAMLCONF):
 		stream = file(YAMLCONF, 'r')
@@ -447,7 +443,7 @@ def configureScript(template=CONFTEMPLATE):
 	# Use OAuth2?
 	if useOAuth:
 		print
-		r = raw_input("Do you wish to use OAuth2? You will need the client ID and client secret. [Y/N] ")
+		r = raw_input("Do you wish to use OAuth2? You will need to set up a client ID and client secret first. [Y/N] ")
 		if "y" in r.lower():
 			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
 			updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
@@ -465,7 +461,7 @@ def configureScript(template=CONFTEMPLATE):
 		if "y" in r.lower():
 			updateConfig(data['smtp'],'server','SMTP server (%s): ')
 			updateConfig(data['smtp'],'port','SMTP port (%s): ')
-			updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ')
+			updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ', True, True)
 			updateConfig(data['smtp'],'username','Username (%s): ')
 			updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
 	
@@ -479,13 +475,12 @@ def configureScript(template=CONFTEMPLATE):
 		# If ssmtp is present, auto-populate
 		updateConfig(data['ssmtp'],'path','Enter the path to the SSMTP binary (%s): ',ssmtp_path)
 	
-	
 	# Create the YAML config file
 	stream = file(YAMLCONF, 'w')
 	yaml.dump(data, stream)
 	
-	# Debugging output
-	print yaml.dump(data)
+	print
+	print "Configuration complete."
 	
 	
 def loadConfig():
@@ -498,31 +493,27 @@ def loadConfig():
 		stream = file(YAMLCONF, 'r')
 		conf = yaml.load(stream)
 		
-		# Debugging output
-		print conf
-		
 	else:
 		raise OSError(errno.ENOENT, "Configuration file not found. Run the script with -c to create the configuration file.")
 
-
-# Always execute, especially when importing
-loadConfig() # Load the configuration file
 
 # Only execute when the script is called directly
 if __name__ == '__main__':
 	initOptions() # Parse command-line parameters
-	
-	# Legacy test for old configuration file
-	if not configPresent:
-		raise OSError(errno.ENOENT, "Configuration file not found. Run the script with -c to create the configuration file.")
-	elif opts.configure:
+	if opts.configure:
 		configureScript()
-	elif opts.test:
-		logPrint('Command-line request for test email.')
-		sendEmail()
-	elif opts.init_oauth:
-		logPrint('Command-line request for OAuth initialisation.')
-		initialiseOAuth()
 	else:
-		logPrint('Command-line request for email.')
-		prepEmail()
+		loadConfig()
+		if opts.test:
+			logPrint('Command-line request for test email.')
+			sendEmail(conf['user']['sender'])
+		elif opts.init_oauth:
+			logPrint('Command-line request for OAuth initialisation.')
+			initialiseOAuth()
+		else:
+			logPrint('Command-line request for email.')
+			prepEmail()
+
+# Always execute, especially when importing
+else:
+	loadConfig() # Load the configuration file
