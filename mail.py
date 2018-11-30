@@ -57,6 +57,7 @@ import datetime
 import shutil
 import yaml
 import socket
+import distutils.spawn
 from optparse import OptionParser, OptionGroup
 
 # JSON library
@@ -447,12 +448,16 @@ def configureScript():
 		if "y" in r.lower():
 			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
 			updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
+		else:
+			data['OAuth2'] = {}
 	
 	# ISP Relay?
 	print 
 	r = raw_input("Enable fallback to ISP relay? [Y/N] ")
 	if "y" in r.lower():
 		updateConfig(data['ISP'],'relay','Enter ISP relay FQDN (%s): ')
+	else:
+		data['ISP'] = {}
 	
 	# smtplib
 	if useSMTP:
@@ -464,16 +469,19 @@ def configureScript():
 			updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ', True, True)
 			updateConfig(data['smtp'],'username','Username (%s): ')
 			updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
+		else:
+			data['smtp'] = {}
 	
 	# Subprocess SSMTP
-	# TO DO: Check if SSMTP is present and set the default path if it is
-	ssmtp_path = '/usr/sbin/ssmtp'
-	
 	print
 	r = raw_input("Enable fallback to subprocess and ssmtp? [Y/N] ")
 	if "y" in r.lower():
-		# If ssmtp is present, auto-populate
+		ssmtp_path = distutils.spawn.find_executable('ssmtp')
+		if ssmtp_path is None:
+			print 'SSMTP binary not detected in path. Please enter manually.'
 		updateConfig(data['ssmtp'],'path','Enter the path to the SSMTP binary (%s): ',ssmtp_path)
+	else:
+		data['ssmtp'] = {}
 	
 	# Create the YAML config file
 	stream = file(YAMLCONF, 'w')
