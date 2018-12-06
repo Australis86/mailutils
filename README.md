@@ -3,16 +3,20 @@ Email utilities used by my other projects.
 
 ## Dependencies
 
-These scripts are built on Python 2.7.x.
+These scripts are built on Python 2.7.x. The following additional modules are used:
+
+* yaml
+* [oauth2](https://github.com/google/gmail-oauth2-tools/wiki/OAuth2DotPyRunThrough) (Google's OAuth2 module)
 
 ## Installation and Configuration
 
-Copy `mailConfig.template` to `mailConfig.py` and update the fields as required.
+After downloading, run `mail.py -c` to generate the configuration file. The user will be able to choose between OAuth2 with Gmail, an ISP relay, smtplib or the ssmtp binary.
 
 ## History
 
 * 2016-01-26 Overhauled PVR transfer script and separated email configuration into separate scripts.
 * 2018-07-06 Migrated to Github, including historical script versions.
+* 2018-11-30 Implementation YAML for the configuration file.
 
 ## Copyright and Licence
 

@@ -10,46 +10,6 @@
 # Licence:     GNU Lesser GPL v3
 #-------------------------------------------------------------------------------
 
-'''
-In order to use OAuth 2.0, you need to follow the instructions found at:
-https://github.com/google/gmail-oauth2-tools/wiki/OAuth2DotPyRunThrough
-
-1. You must register your application through the Google APIs Console:
-
-https://code.google.com/apis/console
-
-2. Use the API Console to create a client id.
-3. Enter the client id and client secret into mailConfig.py.
-4. Run this script with -i to initialise the tokens. This will automatically 
-get the refresh and access tokens, as well as the expiry date and save these.
-It will enable automatic regeneration of access tokens.
-
-If you wish to do the steps manually:
-
-4. Create a token:
-
-python oauth2.py --generate_oauth2_token --client_id=ID --client_secret=SECRET
-
-5. Authorise the token.
-6. Copy both the access and refresh tokens.
-7. Create an OAuth2 authentication string:
-
-python oauth2.py --generate_oauth2_string --access_token=ACCESS_TOKEN --user=USER_EMAIL
-
-8. Test SMTP:
-
-python oauth2.py --test_smtp_authentication --access_token=ACCESS_TOKEN --user=USER_EMAIL
-
-9. Use the authentication string for accessing Gmail.
-
-Note that the access token expires after 1 hour. Your application needs to save 
-the refresh token and generate a new access token as required.
-
-Put your Gmail address, client id, client secret and refresh token into mailConfig.py.
-Access tokens will be generated every time using this method.
-'''
-
-
 import os
 import sys
 import errno
@@ -147,11 +107,11 @@ def initOptions():
 						dest="subject", default="No Subject Specified",
 						help="Specify the subject string for the email.")
 	parser.add_option("-i", "--isp",
-					  action="store_true", dest="useISP", default=False,
-					  help="Force use of ISP SMTP relay if available.")
+						action="store_true", dest="useISP", default=False,
+						help="Force use of ISP SMTP relay if available.")
 	parser.add_option("-t", "--test",
-					  action="store_true", dest="test", default=False,
-					  help="Send an email using the current configuration.")
+						dest="test", default=None,
+						help="Send a test email to the specified recipient.")
 
 	# Options to handle using a file as the source of the email contents
 	fileOptions = OptionGroup(parser, "Prepared Email Body Options",
@@ -172,7 +132,7 @@ def initOptions():
 						help="Create a configuration file from the provided template and prompt the user to enter configuration values.")
 	configOptions.add_option("-o", "--oauth",
 						action="store_true", dest="init_oauth", default=False,
-						help="Generate the OAuth tokens. Requires that the initial configuration is complete and the OAuth Client ID and Secret are present in mailConfig.py.")
+						help="Generate the OAuth tokens. Requires that the initial configuration is complete and that the client ID and secret for OAuth2 has been set up as per https://github.com/google/gmail-oauth2-tools/wiki/OAuth2DotPyRunThrough")
 	parser.add_option_group(configOptions)
 
 
@@ -236,7 +196,7 @@ def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml
 		access_token = tokendata['access']
 		
 		# Prepare for authentication
-		oauth2_string = oauth2.GenerateOAuth2String(conf['user']['sender'], access_token)
+		oauth2_string = oauth2.GenerateOAuth2String(OA2['username'], access_token)
 		logPrint("Authentication string generated.")
 		
 		# Set up the connection
@@ -444,8 +404,9 @@ def configureScript():
 	# Use OAuth2?
 	if useOAuth:
 		print
-		r = raw_input("Do you wish to use OAuth2 with Gmail? Visit https://console.developers.google.com/apis/credentials to set up a client ID and client secret first. [Y/N] ")
+		r = raw_input("Do you wish to use OAuth2 with Gmail? Visit https://console.developers.google.com/projectselector/apis/credentials/oauthclient to create OAuth credentials and obtain your client ID and secret. [Y/N] ")
 		if "y" in r.lower():
+			updateConfig(data['OAuth2'],'username','Gmail Account to use (%s): ')
 			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
 			updateConfig(data['OAuth2'],'client_secret','Client secret (%s): ')
 		else:
@@ -514,7 +475,7 @@ if __name__ == '__main__':
 		loadConfig()
 		if opts.test:
 			logPrint('Command-line request for test email.')
-			sendEmail(conf['user']['sender'])
+			sendEmail(opts.test)
 		elif opts.init_oauth:
 			logPrint('Command-line request for OAuth initialisation.')
 			initialiseOAuth()
