@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #-------------------------------------------------------------------------------
 # Name:        mail
 # Purpose:     Send emails using smtplib. Can use oauth2 to send via Gmail.
@@ -23,7 +23,7 @@ from optparse import OptionParser, OptionGroup
 # JSON library
 try:
 	import json
-except ImportError, err:
+except ImportError as err:
 	import simplejson as json
 
 # MIME type handling
@@ -31,7 +31,7 @@ try:
 	#Python 2.6+
 	from email.mime.multipart import MIMEMultipart
 	from email.mime.text import MIMEText
-except ImportError, err:
+except ImportError as err:
 	#Python 2.4
 	from email.MIMEMultipart import MIMEMultipart
 	from email.MIMEText import MIMEText
@@ -43,14 +43,14 @@ except ImportError, err:
 try:
 	import oauth2
 	useOAuth = True
-except ImportError, err:
+except ImportError as err:
 	useOAuth = False
 
 # Check if smtplib is available
 try:
 	import smtplib
 	useSMTP = True
-except ImportError, err:
+except ImportError as err:
 	useSMTP = False
 
 # If neither Python library is available, fall back to subprocess
@@ -244,7 +244,7 @@ def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml
 			os.remove(EMAILFILE)
 			logPrint('Email sent.')
 
-		except Exception, err:
+		except Exception as err:
 			logPrint('Error sending email:\n%s' % str(err))
 			
 		return
@@ -304,15 +304,15 @@ def initialiseOAuth():
 	if useOAuth:
 		if validateKeys(OA2, ['client_id', 'client_secret']):
 			# Authorise the app
-			print 'Visit the following URL to authorise the token:'
-			print oauth2.GeneratePermissionUrl(OA2['client_id'], 'https://mail.google.com/')
-			print 
+			print('Visit the following URL to authorise the token:')
+			print(oauth2.GeneratePermissionUrl(OA2['client_id'], 'https://mail.google.com/'))
+			print()
 			authorisation_code = raw_input('Enter verification code: ')
 			
 			# Get the access and refresh tokens
 			response = oauth2.AuthorizeTokens(OA2['client_id'], OA2['client_secret'], authorisation_code)
-			print 'Refresh Token: %s' % response['refresh_token']
-			print 'Access Token: %s' % response['access_token']
+			print('Refresh Token: %s' % response['refresh_token'])
+			print('Access Token: %s' % response['access_token'])
 			
 			# Calculate the expiry for the access token
 			expiry = datetime.datetime.now() + datetime.timedelta(seconds=response['expires_in'])
@@ -327,9 +327,9 @@ def initialiseOAuth():
 			f.close()
 		
 		else:
-			print "You have not provided a client ID or secret. Please update the configuration file."
+			print("You have not provided a client ID or secret. Please update the configuration file.")
 	else:
-		print "OAuth2 is not enabled. Please install the Google oauth2 module."
+		print("OAuth2 is not enabled. Please install the Google oauth2 module.")
 	
 	
 def configureScript():
@@ -386,7 +386,7 @@ def configureScript():
 	# Try to work out default sender values
 	try:
 		default_name = os.getlogin() # Only works on Windows if using Python 3.x
-	except Exception, err:
+	except Exception as err:
 		default_name = 'mail'
 	
 	default_addr = '%s@%s' % (default_name, socket.getfqdn())
@@ -439,7 +439,7 @@ def configureScript():
 	if "y" in r.lower():
 		ssmtp_path = distutils.spawn.find_executable('ssmtp')
 		if ssmtp_path is None:
-			print 'SSMTP binary not detected in path. Please enter manually.'
+			print('SSMTP binary not detected in path. Please enter manually.')
 		updateConfig(data['ssmtp'],'path','Enter the path to the SSMTP binary (%s): ',ssmtp_path)
 	else:
 		data['ssmtp'] = {}
@@ -448,8 +448,8 @@ def configureScript():
 	stream = file(YAMLCONF, 'w')
 	yaml.dump(data, stream)
 	
-	print
-	print "Configuration complete."
+	print()
+	print('Configuration complete.')
 	
 	
 def loadConfig():
