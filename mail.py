@@ -6,7 +6,7 @@
 # Author:      Joshua White
 #
 # Created:     26/01/2016
-# Copyright:   (c) Joshua White 2016-2018
+# Copyright:   (c) Joshua White 2016-2023
 # Licence:     GNU Lesser GPL v3
 #-------------------------------------------------------------------------------
 
@@ -21,20 +21,11 @@ import distutils.spawn
 from optparse import OptionParser, OptionGroup
 
 # JSON library
-try:
-	import json
-except ImportError as err:
-	import simplejson as json
+import json
 
 # MIME type handling
-try:
-	#Python 2.6+
-	from email.mime.multipart import MIMEMultipart
-	from email.mime.text import MIMEText
-except ImportError as err:
-	#Python 2.4
-	from email.MIMEMultipart import MIMEMultipart
-	from email.MIMEText import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 ########################################
 # Sanity checks to see what is available
@@ -209,8 +200,8 @@ def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml
 		logPrint("Connected to SMTP server using OAuth.")
 	
 	# ISP relay fallback
-	elif useISP or validateKeys(ISPr,['relay']):
-		smtp_conn = smtplib.SMTP(ISPr['relay'])
+	elif useISP or validateKeys(ISPr,['relay','port']):
+		smtp_conn = smtplib.SMTP(ISPr['relay'], ISPr['port'])
 		logPrint("Connected to SMTP server (ISP relay).")
 	
 	# smtplib fallback (not recommended)
@@ -307,7 +298,7 @@ def initialiseOAuth():
 			print('Visit the following URL to authorise the token:')
 			print(oauth2.GeneratePermissionUrl(OA2['client_id'], 'https://mail.google.com/'))
 			print()
-			authorisation_code = raw_input('Enter verification code: ')
+			authorisation_code = input('Enter verification code: ')
 			
 			# Get the access and refresh tokens
 			response = oauth2.AuthorizeTokens(OA2['client_id'], OA2['client_secret'], authorisation_code)
@@ -355,7 +346,7 @@ def configureScript():
 		else:
 			substr = existing
 		
-		r = raw_input(msg % substr)
+		r = input(msg % substr)
 		
 		# Clean the input and check if it is valid
 		r = r.strip()
@@ -371,8 +362,8 @@ def configureScript():
 	
 	# If there is an existing file, load it
 	if os.path.exists(YAMLCONF):
-		stream = file(YAMLCONF, 'r')
-		data = yaml.load(stream)
+		stream = open(YAMLCONF, 'r')
+		data = yaml.safe_load(stream)
 	else:
 		# Create the default configuration object
 		data = {
@@ -404,7 +395,7 @@ def configureScript():
 	# Use OAuth2?
 	if useOAuth:
 		print
-		r = raw_input("Do you wish to use OAuth2 with Gmail? Visit https://console.developers.google.com/projectselector/apis/credentials/oauthclient to create OAuth credentials and obtain your client ID and secret. [Y/N] ")
+		r = input("Do you wish to use OAuth2 with Gmail? Visit https://console.developers.google.com/projectselector/apis/credentials/oauthclient to create OAuth credentials and obtain your client ID and secret. [Y/N] ")
 		if "y" in r.lower():
 			updateConfig(data['OAuth2'],'username','Gmail Account to use (%s): ')
 			updateConfig(data['OAuth2'],'client_id','Client ID (%s): ')
@@ -414,16 +405,17 @@ def configureScript():
 	
 	# ISP Relay?
 	print 
-	r = raw_input("Enable fallback to ISP relay? [Y/N] ")
+	r = input("Enable fallback to ISP relay? [Y/N] ")
 	if "y" in r.lower():
 		updateConfig(data['ISP'],'relay','Enter ISP relay FQDN (%s): ')
+		updateConfig(data['ISP'],'port','Enter ISP relay port (%s): ')
 	else:
 		data['ISP'] = {}
 	
 	# smtplib
 	if useSMTP:
 		print
-		r = raw_input("Enable fallback to smtplib? This is not recommended, as your username and password are stored in plaintext. [Y/N] ")
+		r = input("Enable fallback to smtplib? This is not recommended, as your username and password are stored in plaintext. [Y/N] ")
 		if "y" in r.lower():
 			updateConfig(data['smtp'],'server','SMTP server (%s): ')
 			updateConfig(data['smtp'],'port','SMTP port (%s): ')
@@ -435,7 +427,7 @@ def configureScript():
 	
 	# Subprocess SSMTP
 	print
-	r = raw_input("Enable fallback to subprocess and ssmtp? [Y/N] ")
+	r = input("Enable fallback to subprocess and ssmtp? [Y/N] ")
 	if "y" in r.lower():
 		ssmtp_path = distutils.spawn.find_executable('ssmtp')
 		if ssmtp_path is None:
@@ -445,7 +437,7 @@ def configureScript():
 		data['ssmtp'] = {}
 	
 	# Create the YAML config file
-	stream = file(YAMLCONF, 'w')
+	stream = open(YAMLCONF, 'w')
 	yaml.dump(data, stream)
 	
 	print()
@@ -459,8 +451,8 @@ def loadConfig():
 	
 	# Ensure the file exists
 	if os.path.exists(YAMLCONF):
-		stream = file(YAMLCONF, 'r')
-		conf = yaml.load(stream)
+		stream = open(YAMLCONF, 'r')
+		conf = yaml.safe_load(stream)
 		
 	else:
 		raise OSError(errno.ENOENT, "Configuration file not found. Run the script with -c to create the configuration file.")

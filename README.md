@@ -5,7 +5,7 @@ Email utilities used by my other projects.
 
 These scripts are built on Python 3.x. The following additional modules are used:
 
-* PyYAML
+* PyYAML 6+
 * [oauth2](https://github.com/google/gmail-oauth2-tools/wiki/OAuth2DotPyRunThrough) (Google's OAuth2 module)
 
 ## Installation and Configuration
