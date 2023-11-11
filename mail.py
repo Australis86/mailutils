@@ -207,12 +207,8 @@ def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml
 	# smtplib fallback (not recommended)
 	elif useSMTP and validateKeys(smtpc,['server','port']):
 		# Use mail server
-		smtp_conn = smtplib.SMTP(smtpc['server'], smtpc['port'])
+		smtp_conn = smtplib.SMTP_SSL(smtpc['server'], smtpc['port'])
 		smtp_conn.ehlo()
-		if smtpc['starttls']:
-			smtp_conn.starttls()
-			smtp_conn.ehlo()
-			
 		smtp_conn.login(smtpc['username'], smtpc['password'])
 		logPrint("Connected to SMTP server using account credentials.")
 
@@ -225,7 +221,7 @@ def sendEmail(recipient, subject='No Subject Specified', bodytext=None, bodyhtml
 		email = email.encode('ascii')
 
 		# Have to write contents to a file. Won't work if you try to echo or cat it.
-		f = open(EMAILFILE,'w')
+		f = open(EMAILFILE,'wb')
 		f.write(email)
 		f.close()
 
@@ -419,7 +415,6 @@ def configureScript():
 		if "y" in r.lower():
 			updateConfig(data['smtp'],'server','SMTP server (%s): ')
 			updateConfig(data['smtp'],'port','SMTP port (%s): ')
-			updateConfig(data['smtp'],'starttls','Use STARTTLS? (%s) [Y/N]: ', True, True)
 			updateConfig(data['smtp'],'username','Username (%s): ')
 			updateConfig(data['smtp'],'password','Password - are you sure you want to do this? (%s): ')
 		else:

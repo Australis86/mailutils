@@ -10,7 +10,7 @@ These scripts are built on Python 3.x. The following additional modules are used
 
 ## Installation and Configuration
 
-After downloading, run `mail.py -c` to generate the configuration file. The user will be able to choose between OAuth2 with Gmail, an ISP relay, smtplib or the ssmtp binary.
+After downloading, run `mail.py -c` to generate the configuration file. The user will be able to choose between OAuth2 with Gmail, an ISP relay, smtplib or the ssmtp binary. To use Gmail app passwords, select the smtplib option.
 
 ## History
 
