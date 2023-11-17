@@ -17,6 +17,7 @@ After downloading, run `mail.py -c` to generate the configuration file. The user
 * 2016-01-26 Overhauled PVR transfer script and separated email configuration into separate scripts.
 * 2018-07-06 Migrated to Github, including historical script versions.
 * 2018-11-30 Implementation YAML for the configuration file.
+* 2023-11-17 Updated to Python 3.
 
 ## Copyright and Licence
 
